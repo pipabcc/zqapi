@@ -1,0 +1,9 @@
+<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- 文本块 -->
+  <path d="M3.6 6.6H14.8" stroke="#334155" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M3.6 10.2H14.8" stroke="#334155" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M3.6 13.8H10" stroke="#334155" stroke-width="1.6" stroke-linecap="round"/>
+  <!-- 放大镜：表示对文本做检测 -->
+  <circle cx="15.6" cy="15.4" r="4.2" stroke="#334155" stroke-width="1.6"/>
+  <path d="M18.7 18.6L21.4 21.3" stroke="#334155" stroke-width="1.6" stroke-linecap="round"/>
+</svg>

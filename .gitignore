@@ -1,0 +1,10 @@
+# 构建中间产物与运行期生成物
+build/
+dist/
+self-check/
+data/
+__pycache__/
+*.pyc
+
+# 测试与工具缓存
+.pytest_cache/

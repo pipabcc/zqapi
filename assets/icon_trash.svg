@@ -1,0 +1,9 @@
+<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- 垃圾桶：清空历史记录 -->
+  <path d="M4.9 7.1H19.1" stroke="#475569" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M9.7 7.1V5.7c0-.55.45-1 1-1h2.6c.55 0 1 .45 1 1v1.4"
+        stroke="#475569" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M6.7 7.1l.85 11.05c.05.62.56 1.1 1.18 1.1h6.54c.62 0 1.13-.48 1.18-1.1L17.3 7.1"
+        stroke="#475569" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M10.4 10.5v5.3M13.6 10.5v5.3" stroke="#475569" stroke-width="1.5" stroke-linecap="round"/>
+</svg>
