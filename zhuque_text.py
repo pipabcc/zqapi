@@ -929,7 +929,6 @@ def build_report_html(
     chart_html = ""
 
     if len(segments) >= 2:
-        counts = segment_counts(segments)
         parts.append(_heading("逐段明细"))
         parts.append(_bullet(segment_summary(segments)))
         parts.append(

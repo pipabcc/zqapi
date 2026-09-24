@@ -127,7 +127,6 @@ def _run_startup_probe(app: QApplication, window: ToolboxWindow) -> int:
     窗口是否可见、是否被最小化、尺寸多少、当前在哪个标签页。
     """
     import json
-    from pathlib import Path
 
     target = get_app_dir() / "startup-probe.json"
 

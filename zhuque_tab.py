@@ -13,8 +13,7 @@ import time
 from typing import Any, Optional, Sequence
 from urllib.parse import urlsplit
 
-from PyQt6.QtCore import QEvent, QSize, Qt, QThread, QTimer, pyqtSignal
-from PyQt6.QtGui import QIcon
+from PyQt6.QtCore import QSize, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,

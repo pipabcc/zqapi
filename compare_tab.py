@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Optional
 
 from PyQt6.QtCore import QEvent, QMimeData, QObject, QSize, Qt, QThread, QTimer, pyqtSignal
-from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
     QApplication,
     QButtonGroup,

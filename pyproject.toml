@@ -1,0 +1,9 @@
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = [
+    "E501",  # 行过长由格式化程序处理或属于文档/HTML长字符串
+]

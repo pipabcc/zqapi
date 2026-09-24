@@ -7,17 +7,14 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import QPoint, QRect, QSize, Qt, pyqtSignal
+from PyQt6.QtCore import QPoint, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import (
     QColor,
-    QFont,
     QFontMetrics,
     QPainter,
-    QPalette,
 )
 from PyQt6.QtWidgets import (
     QHBoxLayout,
-    QLabel,
     QLineEdit,
     QListView,
     QListWidget,
@@ -27,15 +24,12 @@ from PyQt6.QtWidgets import (
     QStyledItemDelegate,
     QStyleOptionViewItem,
     QToolButton,
-    QVBoxLayout,
     QWidget,
 )
 
 from ui_kit import (
     CardPanel,
     SimpleMenuPopup,
-    asset_path,
-    dot_pixmap,
     install_custom_text_context_menus,
     load_icon,
     make_combo,

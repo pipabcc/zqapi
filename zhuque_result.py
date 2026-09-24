@@ -6,9 +6,9 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Optional
+from typing import Optional
 
-from PyQt6.QtCore import QMimeData, QSize, Qt, QTimer, QUrl, pyqtSignal
+from PyQt6.QtCore import QMimeData, Qt, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import (
     QPainter,
     QPixmap,
@@ -25,7 +25,6 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QStackedWidget,
     QTextBrowser,
-    QToolButton,
     QWidget,
 )
 

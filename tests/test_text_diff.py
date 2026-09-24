@@ -6,7 +6,6 @@ from text_diff import (
     DELETE,
     EQUAL,
     INSERT,
-    MODIFY,
     compare_texts,
     diff_to_marked_text,
     diff_to_rewritten_text,

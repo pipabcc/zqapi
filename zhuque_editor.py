@@ -6,9 +6,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Optional
 
-from PyQt6.QtCore import QEvent, QObject, QPoint, QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, QObject, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import (
     QColor,
     QIcon,
@@ -17,7 +17,6 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import (
     QFileDialog,
-    QHBoxLayout,
     QPlainTextEdit,
     QPushButton,
     QTextEdit,

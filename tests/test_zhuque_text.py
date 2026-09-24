@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import unittest
 from zhuque_text import (
-    build_report_html,
     json_to_html,
     mask_key,
     parse_report,
