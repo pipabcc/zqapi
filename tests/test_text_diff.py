@@ -7,7 +7,9 @@ from text_diff import (
     EQUAL,
     INSERT,
     compare_texts,
+    diff_to_html,
     diff_to_marked_text,
+    diff_to_original_html,
     diff_to_rewritten_text,
     format_stats,
     normalize_whitespace,
@@ -46,6 +48,29 @@ class TestTextDiff(unittest.TestCase):
         marked = diff_to_marked_text(res)
         self.assertIn("【-处-】【+到+】处", marked)
         self.assertIn("【-。-】【+\uff01+】", marked)
+
+    def test_delete_in_original_rendering(self) -> None:
+        original = "春眠不觉晓，处处闻啼鸟。"
+        rewritten = "春眠不觉晓，到处闻啼鸟！"
+        res = compare_texts(original, rewritten)
+
+        # 原文渲染：包含删除/修改前的文字，带下划线，不含新增文字
+        orig_html = diff_to_original_html(res)
+        self.assertIn("text-decoration:underline", orig_html)
+        self.assertIn("#fee2e2", orig_html)
+        self.assertIn("处", orig_html)
+        self.assertNotIn("到", orig_html)  # 新增文字不应出现在原文
+
+        # 改写文渲染（show_deletes=False）：包含新增文字，不含删除/删除线
+        rewr_html = diff_to_html(res, show_deletes=False)
+        self.assertIn("#dcfce7", rewr_html)
+        self.assertIn("到", rewr_html)
+        self.assertNotIn("line-through", rewr_html)
+
+        # 标记文本（show_deletes=False）
+        marked_no_del = diff_to_marked_text(res, show_deletes=False)
+        self.assertIn("【+到+】", marked_no_del)
+        self.assertNotIn("【-", marked_no_del)
 
     def test_ignore_options(self) -> None:
         original = "Hello   World"

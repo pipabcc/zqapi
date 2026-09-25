@@ -8,3 +8,4 @@ __pycache__/
 
 # 测试与工具缓存
 .pytest_cache/
+startup-probe.json

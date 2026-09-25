@@ -453,25 +453,66 @@ def _delete_span(text: str) -> str:
     )
 
 
-def run_to_html(run: DiffRun) -> str:
+def _delete_underline_span(text: str) -> str:
+    return (
+        f'<span style="color:{DELETE_COLOR}; background-color:{DELETE_BACKGROUND}; '
+        f'text-decoration:underline;">{_escape_for_html(text)}</span>'
+    )
+
+
+def run_to_original_html(run: DiffRun) -> str:
+    """渲染单个片段在原文侧的展示形式。
+
+    - EQUAL：原样呈现
+    - DELETE / MODIFY：以删除底色 + 下划线呈现原文旧内容
+    - INSERT：原文中不存在该内容，不显示
+    """
+    if run.kind == EQUAL:
+        return _escape_for_html(run.old_text or run.new_text)
+    if run.kind in (DELETE, MODIFY):
+        return _delete_underline_span(run.old_text)
+    return ""
+
+
+def diff_to_original_html(
+    result: DiffResult,
+    *,
+    font_size: int = 13,
+    line_height: int = 100,
+) -> str:
+    """渲染原文侧的完整 HTML（带删除下划线标记）。"""
+    body = "".join(run_to_original_html(run) for run in result.runs)
+    if not body:
+        body = '<span style="color:#94a3b8;">（没有可比较的内容）</span>'
+    return (
+        f'<div style="font-family:\'Microsoft YaHei\', \'Segoe UI\', sans-serif; '
+        f'font-size:{int(font_size)}px; line-height:{int(line_height)}%; '
+        f'color:#111827; white-space:pre-wrap;">{body}</div>'
+    )
+
+
+def run_to_html(run: DiffRun, *, show_deletes: bool = True) -> str:
     if run.kind == EQUAL:
         # 结果区展示的是「改写文」，未改动内容按改写文的写法呈现（忽略大小写时便于阅读）。
         return _escape_for_html(run.new_text or run.old_text)
     if run.kind == INSERT:
         return _insert_span(run.new_text)
     if run.kind == DELETE:
-        return _delete_span(run.old_text)
-    return _delete_span(run.old_text) + _insert_span(run.new_text)
+        return _delete_span(run.old_text) if show_deletes else ""
+    if show_deletes:
+        return _delete_span(run.old_text) + _insert_span(run.new_text)
+    return _insert_span(run.new_text)
 
 
-def runs_to_html(runs: Iterable[DiffRun]) -> str:
+def runs_to_html(runs: Iterable[DiffRun], *, show_deletes: bool = True) -> str:
     """渲染为行内富文本片段（换行转为 <br/>，可直接交给 QTextBrowser）。"""
-    return "".join(run_to_html(run) for run in runs)
+    return "".join(run_to_html(run, show_deletes=show_deletes) for run in runs)
 
 
 def diff_to_html(
     result: DiffResult,
     *,
+    show_deletes: bool = True,
     font_size: int = 13,
     line_height: int = 100,
 ) -> str:
@@ -482,7 +523,7 @@ def diff_to_html(
     QPlainTextEdit 的行高算法不同，只要这里放大一点，结果里的每个空行都会明显比左侧高，
     看着就像"空行被撑开了"。
     """
-    body = runs_to_html(result.runs)
+    body = runs_to_html(result.runs, show_deletes=show_deletes)
     if not body:
         body = '<span style="color:#94a3b8;">（没有可比较的内容）</span>'
     return (
@@ -497,7 +538,7 @@ def diff_to_rewritten_text(result: DiffResult) -> str:
     return "".join(run.new_text for run in result.runs)
 
 
-def diff_to_marked_text(result: DiffResult) -> str:
+def diff_to_marked_text(result: DiffResult, *, show_deletes: bool = True) -> str:
     """纯文本形式的标记结果：``【-删除-】`` / ``【+新增+】``。"""
     parts: list[str] = []
     for run in result.runs:
@@ -506,9 +547,12 @@ def diff_to_marked_text(result: DiffResult) -> str:
         elif run.kind == INSERT:
             parts.append(f"【+{run.new_text}+】")
         elif run.kind == DELETE:
-            parts.append(f"【-{run.old_text}-】")
+            if show_deletes:
+                parts.append(f"【-{run.old_text}-】")
         else:
-            parts.append(f"【-{run.old_text}-】【+{run.new_text}+】")
+            if show_deletes:
+                parts.append(f"【-{run.old_text}-】")
+            parts.append(f"【+{run.new_text}+】")
     return "".join(parts)
 
 

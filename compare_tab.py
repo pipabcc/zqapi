@@ -39,6 +39,7 @@ from ui_kit import (
     install_custom_text_context_menus,
     load_icon,
     make_segmented_button,
+    show_toast,
 )
 from zhuque_store import ZhuqueStore
 
@@ -57,15 +58,43 @@ _RUNNING_WORKERS: set["_TextCompareWorker"] = set()
 _BUSY_UI_DELAY_MS = 200
 
 
-def _chip(text: str, *, color: str, background: str, strike: bool = False) -> str:
-    decoration = "text-decoration:line-through;" if strike else ""
+def _chip(
+    text: str,
+    *,
+    color: str,
+    background: str,
+    strike: bool = False,
+    underline: bool = False,
+) -> str:
+    if strike:
+        decoration = "text-decoration:line-through;"
+    elif underline:
+        decoration = "text-decoration:underline;"
+    else:
+        decoration = ""
     return (
         f'<span style="color:{color}; background-color:{background}; {decoration}'
         f'padding:1px 4px; border-radius:3px;">{text}</span>'
     )
 
 
-def _legend_html() -> str:
+def _legend_html(*, delete_in_original: bool = True) -> str:
+    if delete_in_original:
+        return (
+            "图例：原文 "
+            + _chip(
+                "删除/修改前",
+                color=text_diff.DELETE_COLOR,
+                background=text_diff.DELETE_BACKGROUND,
+                underline=True,
+            )
+            + " ｜ 改写文 "
+            + _chip(
+                "新增/修改后",
+                color=text_diff.INSERT_COLOR,
+                background=text_diff.INSERT_BACKGROUND,
+            )
+        )
     return (
         "图例："
         + _chip("新增", color=text_diff.INSERT_COLOR, background=text_diff.INSERT_BACKGROUND)
@@ -106,14 +135,12 @@ class _TextCompareWorker(QThread):
         original: str,
         rewritten: str,
         *,
-        ignore_whitespace: bool,
         ignore_case: bool,
     ) -> None:
         super().__init__()
         self._request_id = int(request_id)
         self._original = str(original or "")
         self._rewritten = str(rewritten or "")
-        self._ignore_whitespace = bool(ignore_whitespace)
         self._ignore_case = bool(ignore_case)
         self._cancelled = False
 
@@ -127,7 +154,7 @@ class _TextCompareWorker(QThread):
             result = text_diff.compare_texts(
                 self._original,
                 self._rewritten,
-                ignore_whitespace=self._ignore_whitespace,
+                ignore_whitespace=False,
                 ignore_case=self._ignore_case,
             )
             if self._cancelled:
@@ -153,7 +180,10 @@ class TextCompareTab(QWidget):
         self._status_text = ""
         self._syncing_scroll = False
         self._original_edit: Optional[QPlainTextEdit] = None
+        self._original_view: Optional[QTextBrowser] = None
+        self._original_stack: Optional[QStackedWidget] = None
         self._rewritten_edit: Optional[QPlainTextEdit] = None
+        self._legend_label: Optional[QLabel] = None
 
         self.setObjectName("TextComparePage")
         self._build_ui()
@@ -222,11 +252,12 @@ class TextCompareTab(QWidget):
         return [self._swap_btn, self._clear_btn, self._compare_btn]
 
     def _build_compare_options(self) -> list[QWidget]:
-        self._ignore_whitespace_check = QCheckBox("忽略空白差异")
-        self._ignore_whitespace_check.setObjectName("TextCompareOption")
-        self._ignore_whitespace_check.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._ignore_whitespace_check.setToolTip(
-            "连续空白视为一个空格、去掉首尾空白后再比较；结果区展示的也是规范化后的文本。"
+        self._delete_in_orig_check = QCheckBox("在原文标记删除")
+        self._delete_in_orig_check.setObjectName("TextCompareOption")
+        self._delete_in_orig_check.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._delete_in_orig_check.setToolTip(
+            "勾选后，删除内容以红色底色+下划线显示在左侧原文中，右侧对比结果只保留新增和修改后的文字；"
+            "未勾选时，删除内容以红色底色+删除线显示在右侧改写文中。"
         )
 
         self._ignore_case_check = QCheckBox("忽略英文大小写")
@@ -239,10 +270,11 @@ class TextCompareTab(QWidget):
         self._sync_scroll_check.setCursor(Qt.CursorShape.PointingHandCursor)
         self._sync_scroll_check.setToolTip("开启后，原文与改写文/结果区将等比联动同步滚动。")
 
-        for check in (self._ignore_whitespace_check, self._ignore_case_check, self._sync_scroll_check):
-            check.toggled.connect(self._on_option_toggled)
+        self._delete_in_orig_check.toggled.connect(self._on_display_option_toggled)
+        self._ignore_case_check.toggled.connect(self._on_compare_option_toggled)
+        self._sync_scroll_check.toggled.connect(self._on_sync_scroll_toggled)
 
-        return [self._ignore_whitespace_check, self._ignore_case_check, self._sync_scroll_check]
+        return [self._delete_in_orig_check, self._ignore_case_check, self._sync_scroll_check]
 
     def _build_panels(self) -> QWidget:
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -304,8 +336,20 @@ class TextCompareTab(QWidget):
         self._original_edit.setPlaceholderText("粘贴作为基准的原文…（支持拖入 .txt / .md 文件）")
         self._original_edit.textChanged.connect(self._on_text_changed)
         self._original_edit.installEventFilter(self)
+
+        self._original_view = QTextBrowser()
+        self._original_view.setObjectName("TextCompareResult")
+        self._original_view.setReadOnly(True)
+        self._original_view.setOpenExternalLinks(False)
+        self._original_view.setOpenLinks(False)
+
+        self._original_stack = QStackedWidget()
+        self._original_stack.addWidget(self._original_edit)
+        self._original_stack.addWidget(self._original_view)
+        self._original_stack.setCurrentIndex(_EDITOR_VIEW)
+
         layout: QVBoxLayout = panel.layout()  # type: ignore[assignment]
-        layout.addWidget(self._original_edit, 1)
+        layout.addWidget(self._original_stack, 1)
         return panel
 
     def _build_rewritten_panel(self) -> QWidget:
@@ -383,6 +427,7 @@ class TextCompareTab(QWidget):
         legend = QLabel(_legend_html())
         legend.setObjectName("TextCompareLegend")
         legend.setTextFormat(Qt.TextFormat.RichText)
+        self._legend_label = legend
 
         self._status_label = QLabel("")
         self._status_label.setObjectName("TextCompareStatus")
@@ -455,12 +500,12 @@ class TextCompareTab(QWidget):
     # --- 配置持久化 -------------------------------------------------------
 
     def _load_saved_options(self) -> None:
-        self._ignore_whitespace_check.blockSignals(True)
+        self._delete_in_orig_check.blockSignals(True)
         self._ignore_case_check.blockSignals(True)
         self._sync_scroll_check.blockSignals(True)
 
-        self._ignore_whitespace_check.setChecked(
-            bool(self._store.get_custom_setting("compare_ignore_whitespace", False))
+        self._delete_in_orig_check.setChecked(
+            bool(self._store.get_custom_setting("compare_delete_in_original", True))
         )
         self._ignore_case_check.setChecked(
             bool(self._store.get_custom_setting("compare_ignore_case", False))
@@ -469,13 +514,13 @@ class TextCompareTab(QWidget):
             bool(self._store.get_custom_setting("compare_sync_scroll", True))
         )
 
-        self._ignore_whitespace_check.blockSignals(False)
+        self._delete_in_orig_check.blockSignals(False)
         self._ignore_case_check.blockSignals(False)
         self._sync_scroll_check.blockSignals(False)
 
     def _save_options(self) -> None:
         self._store.set_custom_setting(
-            "compare_ignore_whitespace", self._ignore_whitespace_check.isChecked()
+            "compare_delete_in_original", self._delete_in_orig_check.isChecked()
         )
         self._store.set_custom_setting("compare_ignore_case", self._ignore_case_check.isChecked())
         self._store.set_custom_setting("compare_sync_scroll", self._sync_scroll_check.isChecked())
@@ -483,11 +528,13 @@ class TextCompareTab(QWidget):
     # --- 同步滚动联动 -----------------------------------------------------
 
     def _setup_sync_scroll(self) -> None:
-        orig_bar = self._original_edit.verticalScrollBar()
+        orig_edit_bar = self._original_edit.verticalScrollBar()
+        orig_view_bar = self._original_view.verticalScrollBar()
         res_bar = self._result_view.verticalScrollBar()
         rewr_bar = self._rewritten_edit.verticalScrollBar()
 
-        orig_bar.valueChanged.connect(lambda v: self._sync_scroll_from(self._original_edit, v))
+        orig_edit_bar.valueChanged.connect(lambda v: self._sync_scroll_from(self._original_edit, v))
+        orig_view_bar.valueChanged.connect(lambda v: self._sync_scroll_from(self._original_view, v))
         res_bar.valueChanged.connect(lambda v: self._sync_scroll_from(self._result_view, v))
         rewr_bar.valueChanged.connect(lambda v: self._sync_scroll_from(self._rewritten_edit, v))
 
@@ -502,7 +549,7 @@ class TextCompareTab(QWidget):
         ratio = float(value) / float(source_bar.maximum())
         self._syncing_scroll = True
         try:
-            if source_widget is self._original_edit:
+            if source_widget in (self._original_edit, self._original_view):
                 # 原文滚 -> 同步右侧当前可见视图
                 target = (
                     self._result_view
@@ -513,8 +560,13 @@ class TextCompareTab(QWidget):
                 if bar.maximum() > 0:
                     bar.setValue(int(round(ratio * bar.maximum())))
             else:
-                # 右侧滚 -> 同步原文
-                bar = self._original_edit.verticalScrollBar()
+                # 右侧滚 -> 同步原文当前可见视图
+                target = (
+                    self._original_view
+                    if self._original_stack.currentIndex() == _RESULT_VIEW
+                    else self._original_edit
+                )
+                bar = target.verticalScrollBar()
                 if bar.maximum() > 0:
                     bar.setValue(int(round(ratio * bar.maximum())))
         finally:
@@ -538,7 +590,16 @@ class TextCompareTab(QWidget):
         self._stale = True
         self._set_status("内容已改动，点击「开始比较」刷新对比结果。", tone="warning")
 
-    def _on_option_toggled(self, _checked: bool) -> None:
+    def _on_display_option_toggled(self, _checked: bool) -> None:
+        self._save_options()
+        del_in_orig = self._delete_in_orig_check.isChecked()
+        if self._legend_label is not None:
+            self._legend_label.setText(_legend_html(delete_in_original=del_in_orig))
+        if self._result is None:
+            return
+        self._render_current_results()
+
+    def _on_compare_option_toggled(self, _checked: bool) -> None:
         self._save_options()
         if self._result is None:
             return
@@ -547,12 +608,43 @@ class TextCompareTab(QWidget):
             return
         self._start_compare()
 
+    def _on_sync_scroll_toggled(self, _checked: bool) -> None:
+        self._save_options()
+
     def _on_view_switched(self, view_id: int) -> None:
-        self._rewritten_stack.setCurrentIndex(int(view_id))
+        idx = int(view_id)
+        self._rewritten_stack.setCurrentIndex(idx)
+        if idx == _EDITOR_VIEW:
+            self._original_stack.setCurrentIndex(_EDITOR_VIEW)
+        else:
+            del_in_orig = self._delete_in_orig_check.isChecked()
+            self._original_stack.setCurrentIndex(
+                _RESULT_VIEW if (del_in_orig and self._result is not None) else _EDITOR_VIEW
+            )
 
     def _show_result_view(self) -> None:
         self._result_tab_btn.setChecked(True)
         self._rewritten_stack.setCurrentIndex(_RESULT_VIEW)
+        del_in_orig = self._delete_in_orig_check.isChecked()
+        self._original_stack.setCurrentIndex(
+            _RESULT_VIEW if (del_in_orig and self._result is not None) else _EDITOR_VIEW
+        )
+
+    def _render_current_results(self) -> None:
+        if self._result is None:
+            return
+        del_in_orig = self._delete_in_orig_check.isChecked()
+        if del_in_orig:
+            self._original_view.setHtml(text_diff.diff_to_original_html(self._result))
+            self._original_stack.setCurrentIndex(_RESULT_VIEW)
+            self._result_view.setHtml(text_diff.diff_to_html(self._result, show_deletes=False))
+        else:
+            self._original_view.setHtml("")
+            self._original_stack.setCurrentIndex(_EDITOR_VIEW)
+            self._result_view.setHtml(text_diff.diff_to_html(self._result, show_deletes=True))
+        self._show_result_view()
+        if self._legend_label is not None:
+            self._legend_label.setText(_legend_html(delete_in_original=del_in_orig))
 
     def _on_compare_clicked(self) -> None:
         self._start_compare()
@@ -574,7 +666,6 @@ class TextCompareTab(QWidget):
             self._request_seq,
             original,
             rewritten,
-            ignore_whitespace=self._ignore_whitespace_check.isChecked(),
             ignore_case=self._ignore_case_check.isChecked(),
         )
         self._worker = worker
@@ -615,14 +706,16 @@ class TextCompareTab(QWidget):
             return
         self._result = result
         self._stale = False
-        self._result_view.setHtml(text_diff.diff_to_html(result))
         self._copy_btn.setEnabled(True)
-        self._show_result_view()
+        self._render_current_results()
         self._stats_label.setText(text_diff.format_stats(result.stats))
         if result.stats.is_identical:
             self._set_status("比较完成：两段文本完全一致，未检测到差异。", tone="info")
             return
-        self._set_status("比较完成，结果已在右侧「对比结果」中以颜色逐处标记。", tone="success")
+        if self._delete_in_orig_check.isChecked():
+            self._set_status("比较完成：左侧原文标出删除内容，右侧标出改写内容。", tone="success")
+        else:
+            self._set_status("比较完成，结果已在右侧「对比结果」中以颜色逐处标记。", tone="success")
 
     def _on_compare_failed(self, request_id: int, message: str) -> None:
         if int(request_id) != self._request_seq:
@@ -645,6 +738,9 @@ class TextCompareTab(QWidget):
             self._original_edit.blockSignals(False)
             self._rewritten_edit.blockSignals(False)
         self._refresh_counters()
+        self._original_stack.setCurrentIndex(_EDITOR_VIEW)
+        self._rewritten_stack.setCurrentIndex(_EDITOR_VIEW)
+        self._input_tab_btn.setChecked(True)
         if self._result is None:
             self._set_status("已交换原文与改写文。", tone="info")
             return
@@ -665,9 +761,11 @@ class TextCompareTab(QWidget):
         self._request_seq += 1
         self._copy_btn.setEnabled(False)
         self._stats_label.setText("")
+        self._original_view.setHtml("")
+        self._original_stack.setCurrentIndex(_EDITOR_VIEW)
         self._result_view.setHtml(_empty_result_html())
-        self._input_tab_btn.setChecked(True)
         self._rewritten_stack.setCurrentIndex(_EDITOR_VIEW)
+        self._input_tab_btn.setChecked(True)
         self._set_status("已清空，可以重新粘贴内容。", tone="info")
         self._original_edit.setFocus()
 
@@ -680,15 +778,20 @@ class TextCompareTab(QWidget):
         if clipboard is None:
             self._set_status("当前环境不支持剪贴板。", tone="error")
             return
+        del_in_orig = self._delete_in_orig_check.isChecked()
         mime = QMimeData()
-        mime.setHtml(text_diff.diff_to_html(result))
-        mime.setText(text_diff.diff_to_marked_text(result))
+        mime.setHtml(text_diff.diff_to_html(result, show_deletes=not del_in_orig))
+        mime.setText(text_diff.diff_to_marked_text(result, show_deletes=not del_in_orig))
         try:
             clipboard.setMimeData(mime)
         except Exception as exc:
             self._set_status(f"复制失败：{exc}", tone="error")
             return
-        self._set_status("已复制差异结果：新增记为【+…+】、删除记为【-…-】。", tone="success")
+        if del_in_orig:
+            self._set_status("已复制改写文差异结果（新增记为【+…+】）。", tone="success")
+        else:
+            self._set_status("已复制差异结果：新增记为【+…+】、删除记为【-…-】。", tone="success")
+        show_toast(self, "已复制")
 
     # --- 文件导入与拖拽 ---------------------------------------------------
 
