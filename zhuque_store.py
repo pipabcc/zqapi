@@ -61,6 +61,25 @@ CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL DEFAULT ''
 );
+
+CREATE TABLE IF NOT EXISTS compare_records (
+    id             TEXT PRIMARY KEY,
+    created_at     TEXT NOT NULL DEFAULT '',
+    summary        TEXT NOT NULL DEFAULT '',
+    original_text  TEXT NOT NULL DEFAULT '',
+    rewritten_text TEXT NOT NULL DEFAULT '',
+    orig_chars     INTEGER NOT NULL DEFAULT 0,
+    rewr_chars     INTEGER NOT NULL DEFAULT 0,
+    similarity     REAL NOT NULL DEFAULT 0,
+    diff_count     INTEGER NOT NULL DEFAULT 0,
+    insert_count   INTEGER NOT NULL DEFAULT 0,
+    delete_count   INTEGER NOT NULL DEFAULT 0,
+    modify_count   INTEGER NOT NULL DEFAULT 0,
+    pinned         INTEGER NOT NULL DEFAULT 0,
+    payload        TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_compare_records_created ON compare_records (created_at DESC);
 """
 
 # 老库升级用：pinned 是后加的列，缺了就补上（SQLite 不支持 ADD COLUMN IF NOT EXISTS）
@@ -350,4 +369,123 @@ class ZhuqueStore:
                 pass
         except (sqlite3.Error, OSError) as exc:
             raise _write_error("清空", exc) from exc
+        return count
+
+    # ------------------------------------------------------------------
+    # 文本比较历史记录
+    # ------------------------------------------------------------------
+    def add_compare_record(
+        self,
+        *,
+        original_text: str,
+        rewritten_text: str,
+        similarity: float = 0.0,
+        diff_count: int = 0,
+        insert_count: int = 0,
+        delete_count: int = 0,
+        modify_count: int = 0,
+        summary: str = "",
+        pinned: bool = False,
+        payload: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        record = {
+            "id": uuid.uuid4().hex,
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "summary": str(summary or (original_text[:60].replace("\n", " ").strip())),
+            "original_text": str(original_text or ""),
+            "rewritten_text": str(rewritten_text or ""),
+            "orig_chars": len(original_text or ""),
+            "rewr_chars": len(rewritten_text or ""),
+            "similarity": float(similarity or 0.0),
+            "diff_count": int(diff_count or 0),
+            "insert_count": int(insert_count or 0),
+            "delete_count": int(delete_count or 0),
+            "modify_count": int(modify_count or 0),
+            "pinned": 1 if pinned else 0,
+            "payload": json.dumps(payload or {}, ensure_ascii=False),
+        }
+        try:
+            self._db.execute(
+                "INSERT OR REPLACE INTO compare_records ("
+                " id, created_at, summary, original_text, rewritten_text,"
+                " orig_chars, rewr_chars, similarity, diff_count,"
+                " insert_count, delete_count, modify_count, pinned, payload"
+                ") VALUES ("
+                " :id, :created_at, :summary, :original_text, :rewritten_text,"
+                " :orig_chars, :rewr_chars, :similarity, :diff_count,"
+                " :insert_count, :delete_count, :modify_count, :pinned, :payload"
+                ")",
+                record,
+            )
+            self._db.commit()
+        except (sqlite3.Error, OSError) as exc:
+            raise _write_error("写入比对记录", exc) from exc
+        return record
+
+    def list_compare_records(self, limit: int = 200) -> list[dict[str, Any]]:
+        """最新的在前；置顶的记录排在最前面。"""
+        try:
+            rows = self._db.execute(
+                "SELECT id, created_at, summary, orig_chars, rewr_chars,"
+                " similarity, diff_count, insert_count, delete_count, modify_count, pinned"
+                " FROM compare_records"
+                " ORDER BY pinned DESC, created_at DESC, rowid DESC LIMIT ?",
+                (int(limit),),
+            ).fetchall()
+        except (sqlite3.Error, OSError) as exc:
+            logger.exception("文本比较存储读取列表失败: %s", exc)
+            return []
+        return [dict(row) for row in rows]
+
+    def set_compare_pinned(self, record_id: str, pinned: bool) -> None:
+        try:
+            self._db.execute(
+                "UPDATE compare_records SET pinned = ? WHERE id = ?",
+                (1 if pinned else 0, str(record_id)),
+            )
+            self._db.commit()
+        except (sqlite3.Error, OSError) as exc:
+            raise _write_error("置顶比对记录", exc) from exc
+
+    def get_compare_record(self, record_id: str) -> Optional[dict[str, Any]]:
+        try:
+            row = self._db.execute("SELECT * FROM compare_records WHERE id = ?", (str(record_id),)).fetchone()
+        except (sqlite3.Error, OSError) as exc:
+            logger.exception("文本比较存储读取单条失败: %s", exc)
+            return None
+        if row is None:
+            return None
+        record = dict(row)
+        try:
+            record["payload"] = json.loads(record.get("payload") or "{}")
+        except json.JSONDecodeError:
+            record["payload"] = {}
+        return record
+
+    def count_compare_records(self) -> int:
+        try:
+            row = self._db.execute("SELECT COUNT(*) AS c FROM compare_records").fetchone()
+        except (sqlite3.Error, OSError) as exc:
+            logger.exception("文本比较存储统计条数失败: %s", exc)
+            return 0
+        return int(row["c"]) if row else 0
+
+    def delete_compare_record(self, record_id: str) -> None:
+        try:
+            self._db.execute("DELETE FROM compare_records WHERE id = ?", (str(record_id),))
+            self._db.commit()
+        except (sqlite3.Error, OSError) as exc:
+            raise _write_error("删除比对记录", exc) from exc
+
+    def clear_compare_records(self) -> int:
+        count = self.count_compare_records()
+        try:
+            self._db.execute("DELETE FROM compare_records")
+            self._db.commit()
+            try:
+                self._db.execute("VACUUM")
+            except Exception:
+                pass
+        except (sqlite3.Error, OSError) as exc:
+            raise _write_error("清空比对记录", exc) from exc
         return count

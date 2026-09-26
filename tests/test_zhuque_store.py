@@ -57,6 +57,52 @@ class TestZhuqueStore(unittest.TestCase):
         self.store.delete_record(rec_id)
         self.assertEqual(self.store.count_records(), 0)
 
+    def test_compare_records_crud(self) -> None:
+        self.assertEqual(self.store.count_compare_records(), 0)
+
+        record = self.store.add_compare_record(
+            original_text="这是原文测试内容，包含若干段落。",
+            rewritten_text="这是改写文测试内容，修改了部分段落。",
+            similarity=0.85,
+            diff_count=3,
+            insert_count=5,
+            delete_count=4,
+            modify_count=2,
+            summary="这是原文测试内容",
+        )
+        rec_id = record["id"]
+        self.assertEqual(self.store.count_compare_records(), 1)
+
+        fetched = self.store.get_compare_record(rec_id)
+        self.assertIsNotNone(fetched)
+        assert fetched is not None
+        self.assertEqual(fetched["summary"], "这是原文测试内容")
+        self.assertEqual(fetched["similarity"], 0.85)
+        self.assertEqual(fetched["diff_count"], 3)
+        self.assertEqual(fetched["orig_chars"], len("这是原文测试内容，包含若干段落。"))
+
+        # 置顶
+        self.store.set_compare_pinned(rec_id, True)
+        listed = self.store.list_compare_records()
+        self.assertEqual(len(listed), 1)
+        self.assertEqual(listed[0]["pinned"], 1)
+
+        # 删除
+        self.store.delete_compare_record(rec_id)
+        self.assertEqual(self.store.count_compare_records(), 0)
+
+    def test_clear_compare_records(self) -> None:
+        for i in range(4):
+            self.store.add_compare_record(
+                original_text=f"orig {i}",
+                rewritten_text=f"rewr {i}",
+                similarity=0.9,
+            )
+        self.assertEqual(self.store.count_compare_records(), 4)
+        cleared = self.store.clear_compare_records()
+        self.assertEqual(cleared, 4)
+        self.assertEqual(self.store.count_compare_records(), 0)
+
     def test_clear_records(self) -> None:
         for i in range(3):
             self.store.add_record(text=f"text {i}", payload={})

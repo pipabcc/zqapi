@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Optional
 
@@ -30,6 +31,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from compare_history import CompareHistoryPanel
 import text_diff
 from ui_kit import (
     COMMON_SCROLLBAR_QSS,
@@ -43,6 +45,7 @@ from ui_kit import (
 )
 from zhuque_store import ZhuqueStore
 
+logger = logging.getLogger(__name__)
 
 _EDITOR_VIEW = 0
 _RESULT_VIEW = 1
@@ -184,6 +187,8 @@ class TextCompareTab(QWidget):
         self._original_stack: Optional[QStackedWidget] = None
         self._rewritten_edit: Optional[QPlainTextEdit] = None
         self._legend_label: Optional[QLabel] = None
+        self._history_width = 224
+        self._should_save_history = False
 
         self.setObjectName("TextComparePage")
         self._build_ui()
@@ -251,7 +256,7 @@ class TextCompareTab(QWidget):
 
         return [self._swap_btn, self._clear_btn, self._compare_btn]
 
-    def _build_compare_options(self) -> list[QWidget]:
+    def _build_compare_options(self) -> None:
         self._delete_in_orig_check = QCheckBox("在原文标记删除")
         self._delete_in_orig_check.setObjectName("TextCompareOption")
         self._delete_in_orig_check.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -260,7 +265,7 @@ class TextCompareTab(QWidget):
             "未勾选时，删除内容以红色底色+删除线显示在右侧改写文中。"
         )
 
-        self._ignore_case_check = QCheckBox("忽略英文大小写")
+        self._ignore_case_check = QCheckBox("忽略大小写")
         self._ignore_case_check.setObjectName("TextCompareOption")
         self._ignore_case_check.setCursor(Qt.CursorShape.PointingHandCursor)
         self._ignore_case_check.setToolTip("英文大小写差异不计入改动，展示仍保留原始大小写。")
@@ -274,20 +279,61 @@ class TextCompareTab(QWidget):
         self._ignore_case_check.toggled.connect(self._on_compare_option_toggled)
         self._sync_scroll_check.toggled.connect(self._on_sync_scroll_toggled)
 
-        return [self._delete_in_orig_check, self._ignore_case_check, self._sync_scroll_check]
-
     def _build_panels(self) -> QWidget:
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setObjectName("TextCompareSplitter")
         splitter.setChildrenCollapsible(False)
         splitter.setHandleWidth(10)
-        splitter.addWidget(self._build_original_panel())
-        splitter.addWidget(self._build_rewritten_panel())
-        splitter.setStretchFactor(0, 1)
+
+        # 构建比对选项
+        self._build_compare_options()
+
+        # 实例化三栏：左侧历史栏，右侧原文与改写文
+        self._history_panel = CompareHistoryPanel(self._store, splitter)
+        self._orig_panel_widget = self._build_original_panel()
+        self._rewr_panel_widget = self._build_rewritten_panel()
+
+        splitter.addWidget(self._history_panel)
+        splitter.addWidget(self._orig_panel_widget)
+        splitter.addWidget(self._rewr_panel_widget)
+
+        splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
-        splitter.setSizes([560, 560])
+        splitter.setStretchFactor(2, 1)
+        splitter.setSizes([224, 580, 580])
+        splitter.splitterMoved.connect(self._on_splitter_moved)
+
+        self._history_panel.record_selected.connect(self._on_history_record_selected)
+        self._history_panel.status_hint.connect(lambda msg, tone="info": self._set_status(msg, tone=tone))
+
         self._splitter = splitter
         return splitter
+
+    def _on_splitter_moved(self, _pos: int, index: int) -> None:
+        if index == 1 and self._splitter is not None:
+            sizes = self._splitter.sizes()
+            if sizes:
+                self._history_width = max(160, sizes[0])
+
+    def _balance_panels(self) -> None:
+        """确保左侧历史记录栏保持 224px（或用户拖拽宽度），右侧原文与改写文等宽平分剩余空间。"""
+        if not hasattr(self, "_splitter") or self._splitter is None:
+            return
+        total_width = self._splitter.width()
+        if total_width <= 0:
+            total_width = self.width() - 36
+        if total_width <= 0:
+            return
+        hw = getattr(self, "_history_width", 224)
+        handle_w = self._splitter.handleWidth() * 2
+        remaining = max(200, total_width - hw - handle_w)
+        half = remaining // 2
+        self._splitter.setSizes([hw, half, remaining - half])
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._balance_panels()
+
 
     def _make_panel(self, title: str) -> tuple[QWidget, QLabel, QHBoxLayout]:
         panel = QWidget()
@@ -327,6 +373,8 @@ class TextCompareTab(QWidget):
         self._orig_import_btn.clicked.connect(lambda: self._on_import_file_clicked(self._original_edit))
 
         header_layout.addWidget(self._orig_import_btn)
+        header_layout.addWidget(self._sync_scroll_check)
+        header_layout.addWidget(self._ignore_case_check)
         header_layout.addStretch(1)
         for button in self._build_compare_actions():
             header_layout.addWidget(button)
@@ -368,10 +416,7 @@ class TextCompareTab(QWidget):
         self._rewritten_import_btn.clicked.connect(lambda: self._on_import_file_clicked(self._rewritten_edit))
 
         header_layout.addWidget(self._rewritten_import_btn)
-
-        # 选项
-        for check in self._build_compare_options():
-            header_layout.addWidget(check)
+        header_layout.addWidget(self._delete_in_orig_check)
         header_layout.addStretch(1)
 
         self._input_tab_btn = make_segmented_button("输入")
@@ -492,7 +537,22 @@ class TextCompareTab(QWidget):
             QLabel#TextCompareLegend {{ color: #64748b; font-size: 12px; font-weight: 600; }}
             QLabel#TextCompareStatus {{ font-size: 12px; font-weight: 600; }}
             QLabel#TextCompareStats {{ color: #475569; font-size: 12px; font-weight: 700; }}
+            QWidget#CardPanel {{ background: #ffffff; border: 1px solid #e5e7eb; border-radius: 10px; }}
+            QWidget#CardPanelHeader {{ background: transparent; border: none; }}
+            QLabel#CardPanelTitle {{ font-size: 13px; font-weight: 800; color: #334155; }}
+            QLabel#CardPanelHint {{ color: #94a3b8; font-size: 11px; font-weight: 600; }}
+            QToolButton#CompareHistoryClearBtn {{
+                background: #f1f5f9; color: #475569; border: none; border-radius: 12px; padding: 0px;
+            }}
+            QToolButton#CompareHistoryClearBtn:hover {{ background: #e2e8f0; color: #0f172a; }}
+            QListWidget#CompareHistoryList {{ background: transparent; border: none; outline: none; padding: 2px 6px; }}
+            QPushButton#CompareHistoryMini {{
+                background: #f1f5f9; color: #334155; border: none; border-radius: 6px;
+                padding: 3px 10px; font-size: 12px; font-weight: 700;
+            }}
+            QPushButton#CompareHistoryMini:hover {{ background: #e2e8f0; color: #0f172a; }}
             QSplitter#TextCompareSplitter::handle {{ background: transparent; }}
+            QSplitter#TextCompareSplitter::handle:hover {{ background: rgba(148, 163, 184, 0.25); }}
             {COMMON_SCROLLBAR_QSS}
             """
         )
@@ -606,7 +666,7 @@ class TextCompareTab(QWidget):
         if self._busy:
             self._pending_recompare = True
             return
-        self._start_compare()
+        self._start_compare(save_history=False)
 
     def _on_sync_scroll_toggled(self, _checked: bool) -> None:
         self._save_options()
@@ -647,17 +707,25 @@ class TextCompareTab(QWidget):
             self._legend_label.setText(_legend_html(delete_in_original=del_in_orig))
 
     def _on_compare_clicked(self) -> None:
-        self._start_compare()
+        self._start_compare(save_history=True)
 
-    def _start_compare(self) -> None:
+    def _start_compare(self, *, save_history: bool = False) -> None:
         original = self._original_edit.toPlainText()
         rewritten = self._rewritten_edit.toPlainText()
         if not original.strip() and not rewritten.strip():
             self._set_status("请先在「原文」与「改写文」中输入或粘贴内容。", tone="warning")
             return
-        if self._worker is not None and self._worker.isRunning():
-            return
 
+        # 若已有后台比对在执行，先安全取消并断开信号，避免旧比对拦截或覆盖新请求
+        if self._worker is not None and self._worker.isRunning():
+            self._worker.cancel()
+            try:
+                self._worker.finished_ok.disconnect()
+                self._worker.failed.disconnect()
+            except Exception:
+                pass
+
+        self._should_save_history = bool(save_history)
         self._request_seq += 1
         self._busy = True
         self._busy_timer.start()
@@ -693,7 +761,7 @@ class TextCompareTab(QWidget):
             pass
         if self._pending_recompare:
             self._pending_recompare = False
-            self._start_compare()
+            self._start_compare(save_history=False)
 
     def _on_compare_finished(self, request_id: int, result: object) -> None:
         if int(request_id) != self._request_seq:
@@ -709,6 +777,30 @@ class TextCompareTab(QWidget):
         self._copy_btn.setEnabled(True)
         self._render_current_results()
         self._stats_label.setText(text_diff.format_stats(result.stats))
+
+        # 仅在用户显式触发比对（点开始比较/快捷键）时存入历史记录，避免切换选项或浏览历史重复累加
+        if self._should_save_history:
+            self._should_save_history = False
+            orig_text = self._original_edit.toPlainText()
+            rewr_text = self._rewritten_edit.toPlainText()
+            if orig_text.strip() or rewr_text.strip():
+                try:
+                    stats = result.stats
+                    rec = self._store.add_compare_record(
+                        original_text=orig_text,
+                        rewritten_text=rewr_text,
+                        similarity=stats.similarity,
+                        diff_count=stats.total_count,
+                        insert_count=stats.insert_count,
+                        delete_count=stats.delete_count,
+                        modify_count=stats.modify_count,
+                        summary=orig_text[:60].replace("\n", " ").strip(),
+                    )
+                    if hasattr(self, "_history_panel"):
+                        self._history_panel.refresh(select_id=rec["id"])
+                except Exception as exc:
+                    logger.warning("比对历史自动入库失败: %s", exc)
+
         if result.stats.is_identical:
             self._set_status("比较完成：两段文本完全一致，未检测到差异。", tone="info")
             return
@@ -720,8 +812,28 @@ class TextCompareTab(QWidget):
     def _on_compare_failed(self, request_id: int, message: str) -> None:
         if int(request_id) != self._request_seq:
             return
+        self._should_save_history = False
         self._finish_busy()
         self._set_status(f"比较失败：{message}", tone="error")
+
+    def _on_history_record_selected(self, rec_id: str) -> None:
+        rec = self._store.get_compare_record(rec_id)
+        if not rec:
+            return
+        self._original_edit.blockSignals(True)
+        self._rewritten_edit.blockSignals(True)
+        try:
+            self._original_edit.setPlainText(str(rec.get("original_text") or ""))
+            self._rewritten_edit.setPlainText(str(rec.get("rewritten_text") or ""))
+        finally:
+            self._original_edit.blockSignals(False)
+            self._rewritten_edit.blockSignals(False)
+        self._refresh_counters()
+        # 平滑展示在对比结果视图：绝不切回输入模式，彻底消除闪烁
+        self._show_result_view()
+        self._start_compare(save_history=False)
+        stamp = str(rec.get("created_at") or "")
+        self._set_status(f"已载入比对历史记录（{stamp}）。", tone="info")
 
     def _on_swap_clicked(self) -> None:
         original = self._original_edit.toPlainText()
@@ -744,7 +856,7 @@ class TextCompareTab(QWidget):
         if self._result is None:
             self._set_status("已交换原文与改写文。", tone="info")
             return
-        self._start_compare()
+        self._start_compare(save_history=False)
 
     def _on_clear_clicked(self) -> None:
         for edit in (self._original_edit, self._rewritten_edit):
@@ -844,7 +956,7 @@ class TextCompareTab(QWidget):
                     Qt.Key.Key_Return,
                     Qt.Key.Key_Enter,
                 ):
-                    self._start_compare()
+                    self._start_compare(save_history=True)
                     return True
 
         return super().eventFilter(obj, event)
@@ -853,6 +965,9 @@ class TextCompareTab(QWidget):
 
     def on_shown(self) -> None:
         self._refresh_counters()
+        if hasattr(self, "_history_panel"):
+            self._history_panel.refresh()
+        self._balance_panels()
 
     def cleanup(self) -> None:
         worker = self._worker
