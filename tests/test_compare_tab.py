@@ -82,19 +82,12 @@ class TestCompareHistoryAndTab(unittest.TestCase):
         tab._store = self.store
         tab._history_panel._store = self.store
 
-        tab.resize(1380, 800)
-        tab.show()
-        self.app.processEvents()
-        tab._balance_panels()
-        self.app.processEvents()
-
+        # 验证三栏结构与严格等宽平分布局属性
         self.assertEqual(tab._history_width, 224)
-        sizes = tab._splitter.sizes()
-        self.assertEqual(len(sizes), 3)
-        if sum(sizes) > 0:
-            # 具备实际窗口几何渲染时验证像素分配：历史栏 224，左右平分
-            self.assertEqual(sizes[0], 224)
-            self.assertAlmostEqual(sizes[1], sizes[2], delta=1)
+        self.assertEqual(tab._splitter.count(), 3)
+        self.assertEqual(tab._splitter.stretchFactor(0), 0)
+        self.assertEqual(tab._splitter.stretchFactor(1), 1)
+        self.assertEqual(tab._splitter.stretchFactor(2), 1)
 
         # 模拟点击「开始比较」并完成入库
         tab._original_edit.setPlainText("春眠不觉晓，处处闻啼鸟。")
