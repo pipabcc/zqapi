@@ -82,12 +82,13 @@ class TestCompareHistoryAndTab(unittest.TestCase):
         tab._store = self.store
         tab._history_panel._store = self.store
 
-        # 验证三栏结构与严格等宽平分布局属性
+        # 验证三栏结构与布局属性
         self.assertEqual(tab._history_width, 224)
         self.assertEqual(tab._splitter.count(), 3)
-        self.assertEqual(tab._splitter.stretchFactor(0), 0)
-        self.assertEqual(tab._splitter.stretchFactor(1), 1)
-        self.assertEqual(tab._splitter.stretchFactor(2), 1)
+        self.assertIs(tab._splitter.widget(0), tab._history_panel)
+        self.assertIs(tab._splitter.widget(1), tab._orig_panel_widget)
+        self.assertIs(tab._splitter.widget(2), tab._rewr_panel_widget)
+        self.assertFalse(tab._splitter.childrenCollapsible())
 
         # 模拟点击「开始比较」并完成入库
         tab._original_edit.setPlainText("春眠不觉晓，处处闻啼鸟。")
