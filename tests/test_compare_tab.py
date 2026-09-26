@@ -4,18 +4,25 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from PyQt6.QtWidgets import QApplication
+try:
+    from PyQt6.QtWidgets import QApplication
+    from compare_history import CompareHistoryPanel
+    from compare_tab import TextCompareTab
+    HAS_PYQT6 = True
+except ImportError:
+    HAS_PYQT6 = False
 
-from compare_history import CompareHistoryPanel
-from compare_tab import TextCompareTab
 import text_diff
 from zhuque_store import ZhuqueStore
 
 
-app = QApplication.instance() or QApplication([])
-
-
+@unittest.skipUnless(HAS_PYQT6, "未安装 PyQt6，跳过 GUI 交互测试")
 class TestCompareHistoryAndTab(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        if HAS_PYQT6:
+            cls.app = QApplication.instance() or QApplication([])
+
     def setUp(self) -> None:
         self.tmp_dir = tempfile.TemporaryDirectory()
         self.db_path = Path(self.tmp_dir.name) / "test_zhuque.db"
@@ -77,9 +84,9 @@ class TestCompareHistoryAndTab(unittest.TestCase):
 
         tab.resize(1380, 800)
         tab.show()
-        app.processEvents()
+        self.app.processEvents()
         tab._balance_panels()
-        app.processEvents()
+        self.app.processEvents()
 
         sizes = tab._splitter.sizes()
         self.assertEqual(len(sizes), 3)

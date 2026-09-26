@@ -7,3 +7,8 @@ select = ["E", "F", "W"]
 ignore = [
     "E501",  # 行过长由格式化程序处理或属于文档/HTML长字符串
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
