@@ -95,6 +95,31 @@ class TestTextDiff(unittest.TestCase):
         self.assertEqual(len(res3.runs), 1)
         self.assertEqual(res3.runs[0].kind, INSERT)
 
+    def test_long_text_blank_lines_alignment(self) -> None:
+        """测试长文本在段落换行与空行数量不一致时，保持语义与词句精确对齐，不发生段落错位漂移。"""
+        p1_orig = "前段时间，前理论物理学家 Matt von Hippel 在博客上给人工智能领域出了道考题。"
+        p1_rewr = "前一段时间，曾经做过理论物理学家的 Matt von Hippel 在自己的博客上，给人工智能领域出了一道考题。"
+
+        p2_orig = "乍听上去，容易以为人工智能推翻了什么物理定律。事情其实很具体，它没有新造物理学，但攻下了一个长年困扰学术界的重型计算。"
+        p2_rewr = "乍听上去，容易以为人工智能推翻了什么物理定律。不过事情其实是很具体的，它并没有新造出什么物理学。"
+
+        p3_orig = "所谓散射振幅，可以先退半步看它的用处。高能物理学家研究基本粒子，最核心的动作就是把粒子加速到极高能量撞在一起，测量飞散出来的碎片。"
+        p3_rewr = "所谓散射振幅，可以先退半步看它的用处。高能物理学家在研究基本粒子的时候，最核心的那个动作，就是把粒子加速到极高的能量。"
+
+        filler = "平面超对称杨米尔斯理论下的多圈散射振幅计算属于极度繁重的代数工程。" * 80
+
+        # 原文标题后无空行，改写文标题后有空行
+        orig = f"九圈散射振幅说明\n{p1_orig}\n\n{p2_orig}\n\n{p3_orig}\n\n{filler}"
+        rewr = f"九圈散射振幅说明\n\n{p1_rewr}\n\n{p2_rewr}\n\n{p3_rewr}\n\n{filler}"
+
+        res = compare_texts(orig, rewr)
+
+        # 验证公共相同句子全部精准被识别为 EQUAL
+        equal_texts = [r.old_text for r in res.runs if r.kind == EQUAL]
+        self.assertTrue(any("九圈散射振幅说明" in t for t in equal_texts))
+        self.assertTrue(any("乍听上去，容易以为人工智能推翻了什么物理定律。" in t for t in equal_texts))
+        self.assertTrue(any("所谓散射振幅，可以先退半步看它的用处。" in t for t in equal_texts))
+
 
 if __name__ == "__main__":
     unittest.main()
